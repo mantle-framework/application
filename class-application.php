@@ -8,23 +8,30 @@
 namespace Mantle\Application;
 
 use Mantle\Container\Container;
-use Mantle\Contracts\Bootstrapable;
+use Mantle\Contracts\Application as Application_Contract;
+use Mantle\Contracts\Container as Container_Contract;
+use Mantle\Contracts\Kernel as Kernel_Contract;
+use Mantle\Contracts\Support\Isolated_Service_Provider;
+use Mantle\Events\Event_Service_Provider;
 use Mantle\Framework\Manifest\Model_Manifest;
 use Mantle\Framework\Manifest\Package_Manifest;
+use Mantle\Framework\Providers\Console_Service_Provider;
+use Mantle\Framework\Providers\Routing_Service_Provider;
+use Mantle\Log\Log_Service_Provider;
+use Mantle\Support\Arr;
 use Mantle\Support\Environment;
+use Mantle\Support\Service_Provider;
+use Mantle\View\View_Service_Provider;
 use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
+use function Mantle\Support\Helpers\collect;
+
 /**
  * Mantle Application
  */
-class Application extends Container implements \Mantle\Contracts\Application {
-	use Concerns\Loads_Base_Configuration,
-		Concerns\Loads_Environment_Variables,
-		Concerns\Loads_Facades,
-		Concerns\Manages_Service_Providers;
-
+class Application extends Container implements Application_Contract {
 	/**
 	 * Base path of the application.
 	 *
@@ -42,86 +49,93 @@ class Application extends Container implements \Mantle\Contracts\Application {
 	/**
 	 * Bootstrap path of the application.
 	 *
-	 * @var string|null
+	 * @var string
 	 */
-	protected ?string $bootstrap_path = null;
+	protected $bootstrap_path;
 
 	/**
 	 * Storage path of the application.
 	 *
-	 * @var string|null
+	 * @var string
 	 */
-	protected ?string $storage_path = null;
+	protected $storage_path;
 
 	/**
 	 * Root URL of the application.
 	 *
-	 * @var string|null
+	 * @var string
 	 */
-	protected ?string $root_url = null;
+	protected $root_url;
 
 	/**
 	 * Indicates if the application has been bootstrapped before.
 	 *
 	 * @var bool
 	 */
-	protected bool $has_been_bootstrapped = false;
+	protected $has_been_bootstrapped = false;
 
 	/**
 	 * Indicates if the application has "booted".
 	 *
 	 * @var bool
 	 */
-	protected bool $booted = false;
+	protected $booted = false;
 
 	/**
 	 * The array of booting callbacks.
 	 *
 	 * @var callable[]
 	 */
-	protected array $booting_callbacks = [];
+	protected $booting_callbacks = [];
 
 	/**
 	 * The array of booted callbacks.
 	 *
 	 * @var callable[]
 	 */
-	protected array $booted_callbacks = [];
+	protected $booted_callbacks = [];
+
+	/**
+	 * The array of terminating callbacks.
+	 *
+	 * @var callable[]
+	 */
+	protected $terminating_callbacks = [];
 
 	/**
 	 * All of the registered service providers.
 	 *
-	 * @var \Mantle\Support\Service_Provider[]
+	 * @var Service_Provider[]
 	 */
-	protected array $terminating_callbacks = [];
+	protected $service_providers = [];
 
 	/**
 	 * Environment file name.
 	 *
 	 * @var string
 	 */
-	protected string $environment_file = '.env';
+	protected $environment_file = '.env';
 
 	/**
 	 * The custom environment path defined by the developer.
 	 *
 	 * @var string
 	 */
-	protected ?string $environment_path = null;
+	protected $environment_path;
 
 	/**
 	 * Storage of the overridden environment name.
 	 *
 	 * @var string
 	 */
-	protected ?string $environment;
+	protected $environment;
 
 	/**
 	 * Indicates if the application is running in the console.
 	 *
 	 * @var bool
 	 */
-	protected ?bool $is_running_in_console = null;
+	protected $is_running_in_console;
 
 	/**
 	 * Constructor.
@@ -143,7 +157,6 @@ class Application extends Container implements \Mantle\Contracts\Application {
 		$this->register_base_bindings();
 		$this->register_base_service_providers();
 		$this->register_core_aliases();
-		$this->register_base_services();
 	}
 
 	/**
@@ -169,7 +182,7 @@ class Application extends Container implements \Mantle\Contracts\Application {
 	 * @return string
 	 */
 	public function get_base_path( string $path = '' ): string {
-		return $this->base_path . ( $path ? DIRECTORY_SEPARATOR . $path : '' );
+		return $this->base_path . ( $path ? '/' . $path : '' );
 	}
 
 	/**
@@ -205,23 +218,7 @@ class Application extends Container implements \Mantle\Contracts\Application {
 	 * @return string
 	 */
 	public function get_bootstrap_path( string $path = '' ): string {
-		if ( $this->bootstrap_path ) {
-			return $path ? $this->bootstrap_path . DIRECTORY_SEPARATOR . $path : $this->bootstrap_path;
-		}
-
-		if ( function_exists( 'apply_filters' ) ) {
-			/**
-			 * Filter the path to the bootstrap folder.
-			 *
-			 * @param string $cache_path Path to the bootstrap folder.
-			 * @param Application $app Application instance.
-			 */
-			$this->bootstrap_path = apply_filters( 'mantle_bootstrap_path', $this->get_base_path( 'bootstrap' ), $this );
-		} else {
-			$this->bootstrap_path = $this->get_base_path( 'bootstrap' );
-		}
-
-		return $this->bootstrap_path . DIRECTORY_SEPARATOR . $path;
+		return ( $this->bootstrap_path ?: $this->base_path . DIRECTORY_SEPARATOR . 'bootstrap' ) . $path;
 	}
 
 	/**
@@ -231,35 +228,15 @@ class Application extends Container implements \Mantle\Contracts\Application {
 	 * @return string
 	 */
 	public function get_storage_path( string $path = '' ): string {
-		if ( $this->storage_path ) {
-			return $this->storage_path . DIRECTORY_SEPARATOR . $path;
-		}
-
-		if ( function_exists( 'apply_filters' ) ) {
-			/**
-			 * Filter the path to the storage folder.
-			 *
-			 * @param string $cache_path Path to the cache folder.
-			 * @param Application $app Application instance.
-			 */
-			$this->storage_path = apply_filters( 'mantle_storage_path', $this->get_base_path( 'storage' ), $this );
-		} else {
-			$this->storage_path = $this->get_base_path( 'storage' );
-		}
-
-		return $this->storage_path . DIRECTORY_SEPARATOR . $path;
+		return ( $this->storage_path ?: $this->base_path . DIRECTORY_SEPARATOR . 'storage' ) . $path;
 	}
 
 	/**
 	 * Set the root URL of the application.
 	 *
-	 * @param string|null $url Root URL to set, or null to use the default.
+	 * @param string $url Root URL to set.
 	 */
-	public function set_root_url( ?string $url = null ) {
-		if ( ! $url ) {
-			$url = function_exists( 'home_url' ) ? \home_url() : '/';
-		}
-
+	public function set_root_url( string $url ) {
 		$this->root_url = $url;
 	}
 
@@ -278,23 +255,10 @@ class Application extends Container implements \Mantle\Contracts\Application {
 	 * Get the cache folder root
 	 * Folder that stores all compiled server-side assets for the application.
 	 *
-	 * @param string|null $path Path to append.
 	 * @return string
 	 */
-	public function get_cache_path( ?string $path = null ): string {
-		if ( function_exists( 'apply_filters' ) ) {
-			/**
-			 * Filter the path to the cache folder.
-			 *
-			 * @param string $cache_path Path to the cache folder.
-			 * @param Application $app Application instance.
-			 */
-			$cache_path = (string) apply_filters( 'mantle_cache_path', $this->get_bootstrap_path( 'cache' ), $this );
-		} else {
-			$cache_path = $this->get_bootstrap_path( 'cache' );
-		}
-
-		return $path ? $cache_path . DIRECTORY_SEPARATOR . $path : $cache_path;
+	public function get_cache_path(): string {
+		return $this->get_bootstrap_path( '/cache' );
 	}
 
 	/**
@@ -305,7 +269,7 @@ class Application extends Container implements \Mantle\Contracts\Application {
 	 * @return string
 	 */
 	public function get_cached_packages_path(): string {
-		return $this->get_cache_path( 'packages.php' );
+		return $this->get_cache_path() . '/packages.php';
 	}
 
 	/**
@@ -315,7 +279,7 @@ class Application extends Container implements \Mantle\Contracts\Application {
 	 * @return string
 	 */
 	public function get_cached_models_path(): string {
-		return $this->get_cache_path( 'models.php' );
+		return $this->get_cache_path() . '/models.php';
 	}
 
 	/**
@@ -360,7 +324,7 @@ class Application extends Container implements \Mantle\Contracts\Application {
 	 * @return string
 	 */
 	public function get_config_path(): string {
-		return $this->get_base_path( 'config' );
+		return $this->base_path . '/config';
 	}
 
 	/**
@@ -382,7 +346,7 @@ class Application extends Container implements \Mantle\Contracts\Application {
 
 		$this->instance( 'app', $this );
 		$this->instance( Container::class, $this );
-		$this->instance( \Mantle\Contracts\Container::class, $this );
+		$this->instance( Container_Contract::class, $this );
 		$this->instance( static::class, $this );
 
 		$this->singleton(
@@ -394,6 +358,17 @@ class Application extends Container implements \Mantle\Contracts\Application {
 			Model_Manifest::class,
 			fn ( $app ) => new Model_Manifest( $this->get_app_path(), $this->get_cached_models_path() ),
 		);
+	}
+
+	/**
+	 * Register the base service providers.
+	 */
+	protected function register_base_service_providers() {
+		$this->register( Console_Service_Provider::class );
+		$this->register( Event_Service_Provider::class );
+		$this->register( Log_Service_Provider::class );
+		$this->register( View_Service_Provider::class );
+		$this->register( Routing_Service_Provider::class );
 	}
 
 	/**
@@ -425,15 +400,6 @@ class Application extends Container implements \Mantle\Contracts\Application {
 	}
 
 	/**
-	 * Register the base services for the application.
-	 */
-	public function register_base_services() {
-		$this->load_environment_variables();
-		$this->load_base_configuration();
-		$this->load_facades();
-	}
-
-	/**
 	 * Flush the container of all bindings and resolved instances.
 	 */
 	public function flush() {
@@ -447,17 +413,94 @@ class Application extends Container implements \Mantle\Contracts\Application {
 	/**
 	 * Run the given array of bootstrap classes.
 	 *
-	 * Bootstrap classes should implement {@see \Mantle\Contracts\Bootstrapable}.
+	 * Bootstrap classes should implement `Mantle\Contracts\Bootstrapable`.
 	 *
-	 * @param array<mixed, class-string<Bootstrapable>> $bootstrappers Class names of packages to boot.
-	 * @param \Mantle\Contracts\Kernel                  $kernel Kernel instance.
+	 * @param string[]        $bootstrappers Class names of packages to boot.
+	 * @param Kernel_Contract $kernel Kernel instance.
 	 */
-	public function bootstrap_with( array $bootstrappers, \Mantle\Contracts\Kernel $kernel ) {
+	public function bootstrap_with( array $bootstrappers, Kernel_Contract $kernel ) {
 		$this->has_been_bootstrapped = true;
 
 		foreach ( $bootstrappers as $bootstrapper ) {
 			$this->make( $bootstrapper )->bootstrap( $this, $kernel );
 		}
+	}
+
+	/**
+	 * Register all of the configured providers.
+	 */
+	public function register_configured_providers() {
+		// Get providers from the application config.
+		$providers = collect( $this->make( 'config' )->get( 'app.providers', [] ) );
+
+		// Include providers from the package manifest.
+		$providers->push( ...$this->make( Package_Manifest::class )->providers() );
+
+		// Only register service providers that implement Isolated_Service_Provider
+		// when in isolation mode.
+		if ( $this->is_running_in_console_isolation() ) {
+			$providers = $providers->filter(
+				fn ( string $provider ) => in_array(
+					Isolated_Service_Provider::class,
+					class_implements( $provider ),
+					true,
+				)
+			);
+		}
+
+		$providers->each( [ $this, 'register' ] );
+	}
+
+	/**
+	 * Get an instance of a service provider.
+	 *
+	 * @param string $name Provider class name.
+	 * @return Service_Provider|null
+	 */
+	public function get_provider( string $name ): ?Service_Provider {
+		$providers = Arr::where(
+			$this->get_providers(),
+			function( Service_Provider $provider ) use ( $name ) {
+				return $provider instanceof $name;
+			}
+		);
+
+		return array_shift( $providers );
+	}
+
+	/**
+	 * Get all service providers.
+	 *
+	 * @return Service_Provider[]
+	 */
+	public function get_providers(): array {
+		return $this->service_providers;
+	}
+
+	/**
+	 * Register a Service Provider
+	 *
+	 * @param Service_Provider|string $provider Provider instance or class name to register.
+	 * @return Application
+	 */
+	public function register( $provider ): Application {
+		$provider_name = is_string( $provider ) ? $provider : get_class( $provider );
+
+		if ( ! empty( $this->service_providers[ $provider_name ] ) ) {
+			return $this;
+		}
+
+		if ( is_string( $provider ) ) {
+			$provider = new $provider( $this );
+		}
+
+		if ( ! ( $provider instanceof Service_Provider ) ) {
+			\wp_die( 'Provider is not instance of Service_Provider: ' . $provider_name ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+
+		$provider->register();
+		$this->service_providers[ $provider_name ] = $provider;
+		return $this;
 	}
 
 	/**
@@ -532,7 +575,7 @@ class Application extends Container implements \Mantle\Contracts\Application {
 			return $this->environment;
 		}
 
-		return Environment::get( 'APP_ENV', function_exists( 'wp_get_environment_type' ) ? wp_get_environment_type() : '' );
+		return Environment::get( 'ENV', function_exists( 'wp_get_environment_type' ) ? wp_get_environment_type() : '' );
 	}
 
 	/**
@@ -558,17 +601,6 @@ class Application extends Container implements \Mantle\Contracts\Application {
 		}
 
 		return (string) $this['config']->get( 'app.namespace', 'App' );
-	}
-
-	/**
-	 * Alias to get_namespace().
-	 *
-	 * @throws RuntimeException Thrown on error determining namespace.
-	 *
-	 * @return string
-	 */
-	public function namespace(): string {
-		return $this->get_namespace();
 	}
 
 	/**
