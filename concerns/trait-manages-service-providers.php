@@ -46,7 +46,7 @@ trait Manages_Service_Providers {
 	/**
 	 * Register all of the configured providers.
 	 */
-	public function register_configured_providers(): void {
+	public function register_configured_providers() {
 		// Get providers from the application config.
 		$providers = collect( $this->make( 'config' )->get( 'app.providers', [] ) );
 
@@ -72,10 +72,11 @@ trait Manages_Service_Providers {
 	 * Get an instance of a service provider.
 	 *
 	 * @param class-string<Service_Provider> $name Provider class name.
+	 * @return Service_Provider|null
 	 */
 	public function get_provider( string $name ): ?Service_Provider {
 		return collect( $this->get_providers() )->first(
-			fn ( Service_Provider $provider ) => $provider instanceof $name,
+			fn( Service_Provider $provider ) => $provider instanceof $name,
 		);
 	}
 
@@ -94,9 +95,10 @@ trait Manages_Service_Providers {
 	 * @throws InvalidArgumentException If the provider is not an instance of Service_Provider.
 	 *
 	 * @param Service_Provider|class-string<Service_Provider> $provider Provider instance or class name to register.
+	 * @return static
 	 */
 	public function register( Service_Provider|string $provider ): static {
-		$provider_name = is_string( $provider ) ? $provider : $provider::class;
+		$provider_name = is_string( $provider ) ? $provider : get_class( $provider );
 
 		if ( ! empty( $this->service_providers[ $provider_name ] ) ) {
 			return $this;
@@ -104,6 +106,10 @@ trait Manages_Service_Providers {
 
 		if ( is_string( $provider ) ) {
 			$provider = new $provider( $this );
+		}
+
+		if ( ! ( $provider instanceof Service_Provider ) ) {
+			throw new InvalidArgumentException( "Provider is not instance of Service_Provider: {$provider_name}" );
 		}
 
 		$provider->register();
