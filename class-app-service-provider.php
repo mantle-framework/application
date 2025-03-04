@@ -15,10 +15,6 @@ use function Mantle\Support\Helpers\tap;
 
 /**
  * App Service Provider
- *
- * This provider is always loaded by the framework and does not need to be
- * declared. It is registered before the providers are booted to allow for the
- * application to extend the provider with custom functionality.
  */
 class App_Service_Provider extends Service_Provider {
 	/**
@@ -46,7 +42,7 @@ class App_Service_Provider extends Service_Provider {
 	 */
 	protected function boot_scheduler() {
 		$this->app->singleton(
-			'scheduler',
+			Schedule::class,
 			fn ( $app ) => tap(
 				new Schedule( $app ),
 				fn ( Schedule $schedule ) => $this->schedule( $schedule ),

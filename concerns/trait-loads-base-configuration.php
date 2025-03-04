@@ -7,7 +7,12 @@
 
 namespace Mantle\Application\Concerns;
 
+use Dotenv\Dotenv;
+use Dotenv\Exception\InvalidFileException;
+use Mantle\Application\Application;
 use Mantle\Config\Repository;
+use Mantle\Framework\Console\Kernel;
+use Mantle\Support\Environment;
 
 /**
  * Load a base configuration for Mantle to operate.
@@ -18,12 +23,12 @@ trait Loads_Base_Configuration {
 	/**
 	 * Load the base configuration for the application.
 	 */
-	public function load_base_configuration(): void {
+	public function load_base_configuration() {
 		$cached = $this->get_cached_config_path();
 
 		// Check if a cached configuration file exists. If found, load it.
 		if ( is_file( $cached ) ) {
-			$items = require $cached; // phpcs:ignore WordPressVIPMinimum.Files.IncludingFile.UsingVariable
+			$items = require $cached;
 
 			$loaded_from_cache = true;
 		} else {
