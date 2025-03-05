@@ -23,12 +23,12 @@ if ( ! function_exists( 'app' ) ) {
 	 * @param array<mixed> $parameters Parameters.
 	 * @return mixed|Application
 	 */
-	function app( string $abstract = null, array $parameters = [] ) {
+	function app( ?string $abstract = null, array $parameters = [] ) {
 		if ( empty( $abstract ) ) {
-			return Application::getInstance();
+			return Application::get_instance();
 		}
 
-		return Application::getInstance()->make( $abstract, $parameters );
+		return Application::get_instance()->make( $abstract, $parameters );
 	}
 }
 
@@ -52,7 +52,6 @@ if ( ! function_exists( 'base_path' ) ) {
 	 * Get the base path to the application.
 	 *
 	 * @param string $path Path to append.
-	 * @return string
 	 */
 	function base_path( string $path = '' ): string {
 		return app()->get_base_path( $path );
@@ -64,7 +63,6 @@ if ( ! function_exists( 'app_path' ) ) {
 	 * Get the application path (the app/ folder).
 	 *
 	 * @param string $path Path to append.
-	 * @return string
 	 */
 	function app_path( string $path = '' ): string {
 		return app()->get_app_path( $path );
@@ -76,7 +74,6 @@ if ( ! function_exists( 'storage_path' ) ) {
 	 * Get the path to the storage folder.
 	 *
 	 * @param  string  $path Path to append.
-	 * @return string
 	 */
 	function storage_path( string $path = '' ): string {
 		return app()->get_storage_path( $path );
@@ -90,7 +87,6 @@ if ( ! function_exists( 'now' ) ) {
 	 * @todo Allow this to be faked and mocked during testing.
 	 *
 	 * @param DateTimeZone|string|null $tz Timezone.
-	 * @return Carbon\Carbon
 	 */
 	function now( \DateTimeZone|string|null $tz = null ): Carbon\Carbon {
 		if ( ! $tz ) {
